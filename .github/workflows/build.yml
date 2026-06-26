@@ -1,0 +1,162 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versiyon (örn: 4.0)'
+        required: false
+        default: '4.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Windows Build
+    runs-on: windows-latest
+
+    steps:
+      # ── 1. Kod al ────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Python kur ────────────────────────────────────
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      # ── 3. Bağımlılıklar ─────────────────────────────────
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pywin32 openpyxl pyinstaller
+
+      # ── 4. Versiyon belirle ──────────────────────────────
+      - name: Get version
+        id: ver
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -match 'refs/tags/v([\d.]+)') {
+            $v = $Matches[1]
+          } elseif ('${{ github.event.inputs.version }}' -ne '') {
+            $v = '${{ github.event.inputs.version }}'
+          } else {
+            $v = '4.0'
+          }
+          echo "VERSION=$v" >> $env:GITHUB_OUTPUT
+          echo "TAG=v$v"    >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $v"
+
+      # ── 5. Icon oluştur (assets yoksa varsayılan) ────────
+      - name: Create assets dir
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path assets | Out-Null
+          # Eğer icon.ico yoksa Python ile basit bir tane oluştur
+          if (-not (Test-Path 'assets\icon.ico')) {
+            python -c "
+          import struct, zlib
+
+          def make_bmp_16x16(r,g,b):
+              w,h=16,16
+              hdr  = struct.pack('<IHHII',40,w,h*2,1,24,0,w*h*3*2,2835,2835,0,0)
+              xor  = bytes([b,g,r]*w*h)
+              and_ = b'\x00'*(w*h//8)
+              return hdr+xor+and_
+
+          bmp = make_bmp_16x16(30,58,95)  # #1E3A5F rengi
+
+          with open('assets/icon.ico','wb') as f:
+              # ICO header
+              f.write(struct.pack('<HHH',0,1,1))
+              # Directory entry
+              offset = 6 + 16
+              f.write(struct.pack('<BBBBHHII',16,16,0,0,1,24,len(bmp),offset))
+              f.write(bmp)
+          print('icon.ico created')
+          "
+          }
+
+      # ── 6. PyInstaller ile EXE build ─────────────────────
+      - name: Build EXE
+        shell: pwsh
+        run: |
+          pyinstaller OutlookFirmaRehberi.spec --clean --noconfirm
+          if (-not (Test-Path 'dist\OutlookFirmaRehberi.exe')) {
+            Write-Error "EXE oluşturulamadı!"
+            exit 1
+          }
+          $size = (Get-Item 'dist\OutlookFirmaRehberi.exe').Length / 1MB
+          Write-Host "EXE boyutu: $([math]::Round($size,1)) MB"
+
+      # ── 7. Inno Setup kur ────────────────────────────────
+      - name: Install Inno Setup 6
+        run: choco install innosetup --version=6.3.3 -y --no-progress
+
+      # ── 8. setup.iss'deki versiyon güncelle ─────────────
+      - name: Patch version in ISS
+        shell: pwsh
+        run: |
+          $v = '${{ steps.ver.outputs.VERSION }}'
+          $content = Get-Content setup.iss -Raw -Encoding UTF8
+          $content = $content -replace '#define AppVersion\s+"[\d.]+"', "#define AppVersion   `"$v`""
+          $content = $content -replace 'OutputBaseFilename\s+=\s+OutlookFirmaRehberi_v[\d.]+_Setup', "OutputBaseFilename       = OutlookFirmaRehberi_v${v}_Setup"
+          Set-Content setup.iss $content -Encoding UTF8
+          Write-Host "ISS version patched to $v"
+
+      # ── 9. Setup.exe build ───────────────────────────────
+      - name: Build Installer
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Inno Setup build başarısız!"
+            exit 1
+          }
+          $setup = Get-Item "dist\OutlookFirmaRehberi_*.exe" | Select-Object -First 1
+          Write-Host "Setup: $($setup.Name) — $([math]::Round($setup.Length/1MB,1)) MB"
+
+      # ── 10. Artifact yükle ───────────────────────────────
+      - name: Upload Setup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OutlookFirmaRehberi-Setup-${{ steps.ver.outputs.TAG }}
+          path: dist\OutlookFirmaRehberi_*_Setup.exe
+          retention-days: 90
+
+      # ── 11. GitHub Release (sadece tag push'ta) ──────────
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Outlook Firma Rehberi ${{ steps.ver.outputs.TAG }}
+          tag_name: ${{ steps.ver.outputs.TAG }}
+          files: dist\OutlookFirmaRehberi_*_Setup.exe
+          generate_release_notes: false
+          body: |
+            ## 📋 Outlook Firma Rehberi ${{ steps.ver.outputs.TAG }}
+
+            ### Kurulum
+            1. Aşağıdaki **`OutlookFirmaRehberi_v${{ steps.ver.outputs.VERSION }}_Setup.exe`** dosyasını indirin
+            2. Çift tıklayın → kurulum sihirbazını tamamlayın
+            3. **Masaüstündeki kısayoldan** veya Başlat menüsünden açın
+
+            > ⚠️ Outlook'un açık ve oturum açık olması gerekiyor.
+
+            ### Özellikler
+            - ✅ Tüm Outlook hesapları (birden fazla hesap dahil)
+            - ✅ Gelen + Gönderilen + Silinmiş + **tüm alt klasörler**
+            - ✅ İmzadan firma adı, cep telefonu, unvan otomatik çekme
+            - ✅ Aynı mail adresi **tek seferinde** kaydedilir
+            - ✅ Kurumsal / Kişisel (Gmail vb.) ayrı bölüm
+            - ✅ Excel dışa aktarma (3 sayfa: Özet + Kurumsal + Kişisel)
+            - ✅ Artımlı tarama — sadece yeni mailler eklenir
+
+            ---
+            *Poliport — S.SEYMEN*

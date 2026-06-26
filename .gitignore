@@ -1,0 +1,17 @@
+# Build çıktıları
+dist/
+build/
+*.egg-info/
+__pycache__/
+*.pyc
+
+# Uygulama verisi
+rehber_data.json
+
+# IDE
+.vscode/
+.idea/
+
+# Geçici
+*.tmp
+*.log
