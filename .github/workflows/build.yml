@@ -44,8 +44,8 @@ jobs:
           } else {
             $v = '4.0'
           }
-          echo "VERSION=$v" >> $env:GITHUB_OUTPUT
-          echo "TAG=v$v"    >> $env:GITHUB_OUTPUT
+          "VERSION=$v" >> $env:GITHUB_OUTPUT
+          "TAG=v$v"    >> $env:GITHUB_OUTPUT
           Write-Host "Version: $v"
 
       - name: Build EXE
@@ -63,41 +63,37 @@ jobs:
         id: inno
         shell: pwsh
         run: |
-          $paths = @(
+          $candidates = @(
             "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
             "C:\Program Files\Inno Setup 6\ISCC.exe"
           )
-          $found = $paths | Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (-not $found) {
-            Write-Host "Inno Setup bulunamadi, kuruluyor..."
-            choco install innosetup -y --no-progress --ignore-checksums
-            $found = $paths | Where-Object { Test-Path $_ } | Select-Object -First 1
+          $iscc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            choco install innosetup -y --no-progress
+            $iscc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
           }
-          if (-not $found) {
-            Write-Error "Inno Setup bulunamadi!"
-            exit 1
-          }
-          Write-Host "Inno Setup: $found"
-          echo "ISCC=$found" >> $env:GITHUB_OUTPUT
+          if (-not $iscc) { Write-Error "Inno Setup bulunamadi!"; exit 1 }
+          Write-Host "ISCC: $iscc"
+          "ISCC=$iscc" >> $env:GITHUB_OUTPUT
 
       - name: Patch version in ISS
         shell: pwsh
         run: |
           $v = '${{ steps.ver.outputs.VERSION }}'
-          $content = Get-Content setup.iss -Raw -Encoding UTF8
-          $content = $content -replace '#define AppVersion\s+"[\d.]+"', "#define AppVersion   `"$v`""
-          $content = $content -replace 'OutputBaseFilename\s+=\s+\S+', "OutputBaseFilename       = OutlookFirmaRehberi_v${v}_Setup"
-          Set-Content setup.iss $content -Encoding UTF8
-          Write-Host "ISS version: $v"
+          $raw = Get-Content setup.iss -Raw -Encoding UTF8
+          $raw = $raw -replace '(#define AppVersion\s+)"[\d.]+"', "`$1`"$v`""
+          $raw = $raw -replace '(OutputBaseFilename\s*=\s*)[\w.]+', "`${1}OutlookFirmaRehberi_v${v}_Setup"
+          Set-Content setup.iss -Value $raw -Encoding UTF8
+          Write-Host "Patched version to $v"
 
       - name: Build Installer
         shell: pwsh
         run: |
           $iscc = '${{ steps.inno.outputs.ISCC }}'
           & $iscc setup.iss
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          $setup = Get-Item "dist\OutlookFirmaRehberi_*.exe" | Select-Object -First 1
-          Write-Host "Setup: $($setup.Name) - $([math]::Round($setup.Length/1MB,1)) MB"
+          if ($LASTEXITCODE -ne 0) { Write-Error "Inno Setup failed"; exit 1 }
+          $f = Get-Item "dist\OutlookFirmaRehberi_*_Setup.exe" | Select-Object -First 1
+          Write-Host "Setup: $($f.Name) - $([math]::Round($f.Length/1MB,1)) MB"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -117,20 +113,12 @@ jobs:
           body: |
             ## Outlook Firma Rehberi ${{ steps.ver.outputs.TAG }}
 
-            ### Kurulum
-            1. `OutlookFirmaRehberi_v${{ steps.ver.outputs.VERSION }}_Setup.exe` dosyasini indirin
-            2. Cift tiklayin, kurulum sihirbazini tamamlayin
-            3. Masaustu kisayolundan acin
+            Kurulum: Setup.exe dosyasini indirip cift tiklayin.
+            Outlook acik olmali.
 
-            > Outlook acik ve oturum acik olmali.
+            - Tum hesaplar + tum alt klasorler taranir
+            - Imzadan firma, isim, cep tel otomatik
+            - Tekrarsiz mail adresleri
+            - Excel cikti (Ozet + Kurumsal + Kisisel)
 
-            ### Ozellikler
-            - Tum Outlook hesaplari (birden fazla hesap dahil)
-            - Gelen + Gonderilen + Silinmis + tum alt klasorler
-            - Imzadan firma adi, cep telefonu, unvan
-            - Ayni mail adresi tek seferinde kaydedilir
-            - Excel disa aktarma (Ozet + Kurumsal + Kisisel)
-            - Artimli tarama
-
-            ---
             Poliport - S.SEYMEN

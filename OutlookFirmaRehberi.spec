@@ -1,15 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
-datas     = []
-binaries  = []
+datas        = []
+binaries     = []
 hiddenimports = [
     'win32com', 'win32com.client', 'pythoncom', 'pywintypes',
     'openpyxl', 'openpyxl.styles', 'openpyxl.utils',
 ]
 
 for pkg in ['win32com', 'openpyxl']:
-    d, b, h = collect_all(pkg)
+    d, b, h   = collect_all(pkg)
     datas    += d
     binaries += b
     hiddenimports += h
@@ -45,11 +45,10 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,          # Pencereli uygulama — siyah konsol yok
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    
 )
