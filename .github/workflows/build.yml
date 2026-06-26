@@ -59,8 +59,26 @@ jobs:
           $size = (Get-Item 'dist\OutlookFirmaRehberi.exe').Length / 1MB
           Write-Host "EXE boyutu: $([math]::Round($size,1)) MB"
 
-      - name: Install Inno Setup 6
-        run: choco install innosetup --version=6.3.3 -y --no-progress
+      - name: Find Inno Setup
+        id: inno
+        shell: pwsh
+        run: |
+          $paths = @(
+            "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+            "C:\Program Files\Inno Setup 6\ISCC.exe"
+          )
+          $found = $paths | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $found) {
+            Write-Host "Inno Setup bulunamadi, kuruluyor..."
+            choco install innosetup -y --no-progress --ignore-checksums
+            $found = $paths | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $found) {
+            Write-Error "Inno Setup bulunamadi!"
+            exit 1
+          }
+          Write-Host "Inno Setup: $found"
+          echo "ISCC=$found" >> $env:GITHUB_OUTPUT
 
       - name: Patch version in ISS
         shell: pwsh
@@ -75,7 +93,8 @@ jobs:
       - name: Build Installer
         shell: pwsh
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss
+          $iscc = '${{ steps.inno.outputs.ISCC }}'
+          & $iscc setup.iss
           if ($LASTEXITCODE -ne 0) { exit 1 }
           $setup = Get-Item "dist\OutlookFirmaRehberi_*.exe" | Select-Object -First 1
           Write-Host "Setup: $($setup.Name) - $([math]::Round($setup.Length/1MB,1)) MB"
@@ -106,7 +125,7 @@ jobs:
             > Outlook acik ve oturum acik olmali.
 
             ### Ozellikler
-            - Tum Outlook hesaplari taranir
+            - Tum Outlook hesaplari (birden fazla hesap dahil)
             - Gelen + Gonderilen + Silinmis + tum alt klasorler
             - Imzadan firma adi, cep telefonu, unvan
             - Ayni mail adresi tek seferinde kaydedilir
