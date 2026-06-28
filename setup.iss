@@ -2,7 +2,7 @@
 ; Inno Setup 6 - Poliport / S.SEYMEN
 
 #define AppName      "Outlook Firma Rehberi"
-#define AppVersion   "4.0"
+#define AppVersion   "4.1"
 #define AppPublisher "Poliport - S.SEYMEN"
 #define AppExeName   "OutlookFirmaRehberi.exe"
 #define AppDir       "OutlookFirmaRehberi"
@@ -17,7 +17,7 @@ DefaultDirName          = {autopf}\{#AppDir}
 DefaultGroupName        = {#AppName}
 AllowNoIcons            = yes
 OutputDir               = dist
-OutputBaseFilename      = OutlookFirmaRehberi_v4.0_Setup
+OutputBaseFilename      = OutlookFirmaRehberi_v4.1_Setup
 Compression             = lzma2/ultra64
 SolidCompression        = yes
 WizardStyle             = modern
