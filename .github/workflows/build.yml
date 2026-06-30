@@ -48,6 +48,16 @@ jobs:
           "TAG=v$v"    >> $env:GITHUB_OUTPUT
           Write-Host "Version: $v"
 
+      - name: Verify icon exists
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'assets\icon.ico')) {
+            Write-Error "assets\icon.ico bulunamadi!"
+            exit 1
+          }
+          $iconSize = (Get-Item 'assets\icon.ico').Length / 1KB
+          Write-Host "Icon: assets\icon.ico - $([math]::Round($iconSize,1)) KB"
+
       - name: Build EXE
         shell: pwsh
         run: |

@@ -2,7 +2,7 @@
 ; Inno Setup 6 - Poliport / S.SEYMEN
 
 #define AppName      "Outlook Firma Rehberi"
-#define AppVersion   "4.5"
+#define AppVersion   "4.6"
 #define AppPublisher "Poliport - S.SEYMEN"
 #define AppExeName   "OutlookFirmaRehberi.exe"
 #define AppDir       "OutlookFirmaRehberi"
@@ -17,7 +17,7 @@ DefaultDirName          = {autopf}\{#AppDir}
 DefaultGroupName        = {#AppName}
 AllowNoIcons            = yes
 OutputDir               = dist
-OutputBaseFilename      = OutlookFirmaRehberi_v4.5_Setup
+OutputBaseFilename      = OutlookFirmaRehberi_v4.6_Setup
 SetupIconFile           = assets\icon.ico
 UninstallDisplayIcon    = {app}\{#AppExeName}
 Compression             = lzma2/ultra64
@@ -37,15 +37,16 @@ Name: "startmenu";   Description: "Baslat menusune ekle";      GroupDescription:
 
 [Files]
 Source: "dist\OutlookFirmaRehberi.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "assets\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
 Name: "{app}"; Permissions: users-modify
 
 [Icons]
-Name: "{group}\{#AppName}";          Filename: "{app}\{#AppExeName}"
+Name: "{group}\{#AppName}";          Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\icon.ico"
 Name: "{group}\Kaldır";              Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#AppName}";    Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
-Name: "{userstartmenu}\{#AppName}";  Filename: "{app}\{#AppExeName}"; Tasks: startmenu
+Name: "{autodesktop}\{#AppName}";    Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\icon.ico"; Tasks: desktopicon
+Name: "{userstartmenu}\{#AppName}";  Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\icon.ico"; Tasks: startmenu
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Uygulamayi baslat"; Flags: nowait postinstall skipifsilent
