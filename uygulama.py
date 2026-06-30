@@ -234,35 +234,41 @@ def save_data(contacts):
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
 # ---- Klasor agaci (secim penceresi icin) ----
-def get_folder_tree():
+def get_folder_tree(log_cb=None):
     """Outlook'taki hesap + klasor + alt klasor agacini doner."""
-    import win32com.client
-    outlook = win32com.client.Dispatch("Outlook.Application")
-    ns      = outlook.GetNamespace("MAPI")
-    tree = []
+    import win32com.client, pythoncom
+    pythoncom.CoInitialize()
+    try:
+        outlook = win32com.client.Dispatch("Outlook.Application")
+        ns      = outlook.GetNamespace("MAPI")
+        tree = []
 
-    def collect(folder, depth, path_list):
-        node = {"name": folder.Name, "depth": depth, "path": path_list, "children": []}
-        try:
-            for sub in folder.Folders:
-                try:
-                    node["children"].append(collect(sub, depth+1, path_list + [sub.Name]))
-                except: continue
-        except: pass
-        return node
+        def collect(folder, depth, path_list):
+            node = {"name": folder.Name, "depth": depth, "path": path_list, "children": []}
+            try:
+                for sub in folder.Folders:
+                    try:
+                        node["children"].append(collect(sub, depth+1, path_list + [sub.Name]))
+                    except: continue
+            except: pass
+            return node
 
-    for i in range(1, ns.Folders.Count + 1):
-        try:
-            acc = ns.Folders.Item(i)
-            acc_node = {"name": acc.Name, "depth": 0, "path": [acc.Name], "children": []}
-            for j in range(1, acc.Folders.Count + 1):
-                try:
-                    sub = acc.Folders.Item(j)
-                    acc_node["children"].append(collect(sub, 1, [acc.Name, sub.Name]))
-                except: continue
-            tree.append(acc_node)
-        except: continue
-    return tree
+        for i in range(1, ns.Folders.Count + 1):
+            try:
+                acc = ns.Folders.Item(i)
+                if log_cb: log_cb(f"hesap bulundu: {acc.Name}")
+                acc_node = {"name": acc.Name, "depth": 0, "path": [acc.Name], "children": []}
+                for j in range(1, acc.Folders.Count + 1):
+                    try:
+                        sub = acc.Folders.Item(j)
+                        if log_cb: log_cb(f"  klasor: {sub.Name}")
+                        acc_node["children"].append(collect(sub, 1, [acc.Name, sub.Name]))
+                    except: continue
+                tree.append(acc_node)
+            except: continue
+        return tree
+    finally:
+        pythoncom.CoUninitialize()
 
 def _resolve_folder(ns, path):
     """path = [HesapAdi, Klasor, AltKlasor, ...] -> Outlook Folder objesi"""
@@ -288,6 +294,8 @@ def do_scan(log_cb, done_cb, selected_paths=None):
     """selected_paths None ise tum klasorler taranir (eski davranis).
     Liste verilirse sadece bu path'ler (+ alt klasorleri) taranir.
     Her path: [HesapAdi, KlasorAdi, ...]"""
+    import pythoncom
+    pythoncom.CoInitialize()
     try:
         import win32com.client
         contacts, last_scan = load_data()
@@ -319,6 +327,8 @@ def do_scan(log_cb, done_cb, selected_paths=None):
         done_cb(results, stats)
     except Exception as e:
         done_cb(None, None, str(e))
+    finally:
+        pythoncom.CoUninitialize()
 
 def group_by_firma(contacts):
     firms = {}; kisisel = {}
@@ -691,7 +701,7 @@ class FolderPickerDialog(tk.Toplevel):
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Outlook Firma Rehberi v4.4 — Poliport")
+        self.title("Outlook Firma Rehberi v4.5 — Poliport")
         self.geometry("1280x760"); self.minsize(960, 580)
         self.configure(bg=BG)
         try: self.state("zoomed")
@@ -1016,9 +1026,11 @@ class App(tk.Tk):
         self._scan_btn.set_state(False); self._scan_btn.set_text("⏳ Klasörler okunuyor...")
         self._status("Outlook klasör listesi alınıyor, lütfen bekleyin...")
 
+        def log(msg): self.after(0, lambda: self._prog.config(text=msg[-60:]))
+
         def fetch_tree():
             try:
-                tree = get_folder_tree()
+                tree = get_folder_tree(log_cb=log)
                 self.after(0, lambda: self._show_folder_picker(tree))
             except Exception as e:
                 self.after(0, lambda: self._scan_tree_error(str(e)))
@@ -1035,6 +1047,7 @@ class App(tk.Tk):
     def _show_folder_picker(self, tree):
         self._scan_btn.set_state(True); self._scan_btn.set_text("🔄 Tarama Yap")
         self._scanning = False
+        self._prog.config(text="")
         if not tree:
             messagebox.showwarning("Klasör Yok", "Outlook'ta hiç hesap/klasör bulunamadı.")
             self._status("Klasör bulunamadı."); return
