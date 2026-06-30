@@ -203,7 +203,6 @@ def walk(folder, results, last_scan, stats, log_cb=None):
                     results[em] = d; stats["yeni"] += 1
                 else:
                     ex = results[em]
-                    # Manuel düzenlenmiş alanları koruma altına al
                     for fld in ["name","title","firma_display"]:
                         if not ex.get(fld) and d.get(fld):
                             ex[fld] = d[fld]
@@ -214,7 +213,7 @@ def walk(folder, results, last_scan, stats, log_cb=None):
             except: continue
         for sub in folder.Folders:
             try:
-                if log_cb: log_cb(f"  📂 {sub.Name}")
+                if log_cb: log_cb(f"  klasor: {sub.Name}")
                 walk(sub, results, last_scan, stats, log_cb)
             except: continue
     except: pass
@@ -234,7 +233,61 @@ def save_data(contacts):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
-def do_scan(log_cb, done_cb):
+# ---- Klasor agaci (secim penceresi icin) ----
+def get_folder_tree():
+    """Outlook'taki hesap + klasor + alt klasor agacini doner."""
+    import win32com.client
+    outlook = win32com.client.Dispatch("Outlook.Application")
+    ns      = outlook.GetNamespace("MAPI")
+    tree = []
+
+    def collect(folder, depth, path_list):
+        node = {"name": folder.Name, "depth": depth, "path": path_list, "children": []}
+        try:
+            for sub in folder.Folders:
+                try:
+                    node["children"].append(collect(sub, depth+1, path_list + [sub.Name]))
+                except: continue
+        except: pass
+        return node
+
+    for i in range(1, ns.Folders.Count + 1):
+        try:
+            acc = ns.Folders.Item(i)
+            acc_node = {"name": acc.Name, "depth": 0, "path": [acc.Name], "children": []}
+            for j in range(1, acc.Folders.Count + 1):
+                try:
+                    sub = acc.Folders.Item(j)
+                    acc_node["children"].append(collect(sub, 1, [acc.Name, sub.Name]))
+                except: continue
+            tree.append(acc_node)
+        except: continue
+    return tree
+
+def _resolve_folder(ns, path):
+    """path = [HesapAdi, Klasor, AltKlasor, ...] -> Outlook Folder objesi"""
+    try:
+        acc = None
+        for i in range(1, ns.Folders.Count + 1):
+            f = ns.Folders.Item(i)
+            if f.Name == path[0]: acc = f; break
+        if acc is None: return None
+        cur = acc
+        for name in path[1:]:
+            found = None
+            for k in range(1, cur.Folders.Count + 1):
+                sub = cur.Folders.Item(k)
+                if sub.Name == name: found = sub; break
+            if found is None: return None
+            cur = found
+        return cur
+    except:
+        return None
+
+def do_scan(log_cb, done_cb, selected_paths=None):
+    """selected_paths None ise tum klasorler taranir (eski davranis).
+    Liste verilirse sadece bu path'ler (+ alt klasorleri) taranir.
+    Her path: [HesapAdi, KlasorAdi, ...]"""
     try:
         import win32com.client
         contacts, last_scan = load_data()
@@ -242,17 +295,26 @@ def do_scan(log_cb, done_cb):
         stats   = {"tarandi": 0, "yeni": 0}
         outlook = win32com.client.Dispatch("Outlook.Application")
         ns      = outlook.GetNamespace("MAPI")
-        for i in range(1, ns.Folders.Count + 1):
-            try:
-                acc = ns.Folders.Item(i)
-                log_cb(f"📧 {acc.Name}")
-                for j in range(1, acc.Folders.Count + 1):
-                    try:
-                        sub = acc.Folders.Item(j)
-                        log_cb(f"  📁 {sub.Name}")
-                        walk(sub, results, last_scan, stats, log_cb)
-                    except: continue
-            except: continue
+
+        if selected_paths:
+            for path in selected_paths:
+                folder = _resolve_folder(ns, path)
+                if folder is None: continue
+                log_cb(f"klasor: {' / '.join(path)}")
+                walk(folder, results, last_scan, stats, log_cb)
+        else:
+            for i in range(1, ns.Folders.Count + 1):
+                try:
+                    acc = ns.Folders.Item(i)
+                    log_cb(f"hesap: {acc.Name}")
+                    for j in range(1, acc.Folders.Count + 1):
+                        try:
+                            sub = acc.Folders.Item(j)
+                            log_cb(f"  klasor: {sub.Name}")
+                            walk(sub, results, last_scan, stats, log_cb)
+                        except: continue
+                except: continue
+
         save_data(results)
         done_cb(results, stats)
     except Exception as e:
@@ -488,6 +550,141 @@ class EditDialog(tk.Toplevel):
             icon="warning", parent=self):
             self._on_save(None, self._person.get("email",""))
             self.destroy()
+
+
+# ─── KLASÖR SEÇİM PENCERESİ ─────────────────────────────────
+class FolderPickerDialog(tk.Toplevel):
+    """Outlook hesap/klasör ağacını checkbox ile gösterir;
+    kullanıcı taranacak klasörleri işaretler."""
+    def __init__(self, parent, tree, on_confirm):
+        super().__init__(parent)
+        self.title("Taranacak Klasörleri Seçin")
+        self.geometry("560x620")
+        self.minsize(480, 420)
+        self.configure(bg=PANEL)
+        self.grab_set()
+        self._tree       = tree
+        self._on_confirm = on_confirm
+        self._check_vars = {}   # path_tuple -> tk.BooleanVar
+        self._row_map    = []   # (path_tuple, frame) sıralı liste — toplu işlemler için
+        self._build()
+        self.update_idletasks()
+        px = parent.winfo_rootx() + parent.winfo_width()//2  - self.winfo_width()//2
+        py = parent.winfo_rooty() + parent.winfo_height()//2 - self.winfo_height()//2
+        self.geometry(f"+{px}+{py}")
+
+    def _build(self):
+        hdr = tk.Frame(self, bg=HDR_BG, pady=12); hdr.pack(fill="x")
+        tk.Label(hdr, text="📂  Taranacak Mail Klasörlerini Seçin",
+                 font=("Segoe UI",11,"bold"), bg=HDR_BG, fg=HDR_FG).pack(padx=16)
+        tk.Label(hdr, text="İşaretlediğiniz klasörler ve TÜM alt klasörleri taranır",
+                 font=("Segoe UI",8), bg=HDR_BG, fg="#93C5FD").pack()
+
+        # Hızlı seçim butonları
+        qf = tk.Frame(self, bg=PANEL, pady=8); qf.pack(fill="x", padx=16)
+        FlatBtn(qf, "✅ Tümünü Seç",    self._select_all,   bg="#0891B2", width=120).pack(side="left", padx=2)
+        FlatBtn(qf, "⬜ Tümünü Kaldır", self._select_none,  bg="#94A3B8", width=130).pack(side="left", padx=2)
+        FlatBtn(qf, "📥 Standart Klasörler", self._select_standard, bg="#7C3AED", width=170).pack(side="left", padx=2)
+
+        # Scrollable ağaç
+        CF = tk.Frame(self, bg=PANEL, highlightbackground=BORDER, highlightthickness=1)
+        CF.pack(fill="both", expand=True, padx=16, pady=(0,8))
+        cv  = tk.Canvas(CF, bg=PANEL, highlightthickness=0)
+        vsb = ttk.Scrollbar(CF, orient="vertical", command=cv.yview)
+        cv.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y")
+        cv.pack(side="left", fill="both", expand=True)
+        inner = tk.Frame(cv, bg=PANEL)
+        win = cv.create_window((0,0), window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda e: cv.configure(scrollregion=cv.bbox("all")))
+        cv.bind("<Configure>", lambda e: cv.itemconfig(win, width=e.width))
+        cv.bind_all("<MouseWheel>", lambda e: cv.yview_scroll(-1*(e.delta//120), "units"))
+
+        for acc_node in self._tree:
+            self._render_node(inner, acc_node, is_account=True)
+
+        # Alt butonlar
+        bf = tk.Frame(self, bg="#F1F5F9", pady=12); bf.pack(fill="x")
+        self._count_lbl = tk.Label(bf, text="0 klasör seçili",
+                                   font=F_SMALL, bg="#F1F5F9", fg=TEXT2)
+        self._count_lbl.pack(side="left", padx=16)
+        FlatBtn(bf, "🔄  Taramayı Başlat", self._confirm, bg=SUCCESS, width=170).pack(side="right", padx=8)
+        FlatBtn(bf, "✕  İptal", self.destroy, bg="#64748B", width=100).pack(side="right", padx=4)
+
+    def _render_node(self, parent_frame, node, is_account=False):
+        path = tuple(node["path"])
+        depth = node["depth"]
+
+        row = tk.Frame(parent_frame, bg=PANEL)
+        row.pack(fill="x", padx=(14*depth, 4), pady=1)
+
+        var = tk.BooleanVar(value=False)
+        self._check_vars[path] = var
+
+        cb = tk.Checkbutton(
+            row, variable=var, bg=PANEL, activebackground=PANEL,
+            command=lambda p=path, v=var: self._on_toggle(p, v)
+        )
+        cb.pack(side="left")
+
+        icon = "🏢" if is_account else ("📁" if depth==1 else "📂")
+        font = ("Segoe UI",9,"bold") if is_account else F_BODY
+        color = FIRMA_FG if is_account else TEXT
+        tk.Label(row, text=f"{icon} {node['name']}", font=font, bg=PANEL, fg=color,
+                 anchor="w").pack(side="left", padx=2)
+
+        for child in node.get("children", []):
+            self._render_node(parent_frame, child, is_account=False)
+
+    def _on_toggle(self, path, var):
+        # Bir klasör işaretlenince alt klasörlerini de aynı duruma getir
+        val = var.get()
+        for p, v in self._check_vars.items():
+            if len(p) > len(path) and p[:len(path)] == path:
+                v.set(val)
+        self._update_count()
+
+    def _update_count(self):
+        n = sum(1 for v in self._check_vars.values() if v.get())
+        self._count_lbl.config(text=f"{n} klasör seçili")
+
+    def _select_all(self):
+        for v in self._check_vars.values(): v.set(True)
+        self._update_count()
+
+    def _select_none(self):
+        for v in self._check_vars.values(): v.set(False)
+        self._update_count()
+
+    def _select_standard(self):
+        """Gelen Kutusu, Gönderilmiş Öğeler, Silinmiş Öğeler (TR/EN) işaretle."""
+        standard_names = {
+            "gelen kutusu","inbox","gönderilmiş öğeler","gonderilmis ogeler",
+            "sent items","silinmiş öğeler","silinmis ogeler","deleted items",
+        }
+        for v in self._check_vars.values(): v.set(False)
+        for path, var in self._check_vars.items():
+            if len(path) >= 2 and path[-1].lower() in standard_names:
+                var.set(True)
+                self._on_toggle(path, var)
+        self._update_count()
+
+    def _confirm(self):
+        selected = [list(p) for p, v in self._check_vars.items() if v.get()]
+        if not selected:
+            messagebox.showwarning("Seçim Yok", "En az bir klasör seçmelisiniz.", parent=self)
+            return
+        # Üst düzey seçimleri koru, alt klasörleri ayrı path olarak da göndermeye gerek yok
+        # çünkü walk() zaten recursive iniyor — ama kullanıcı sadece bir alt klasörü
+        # seçip üstünü seçmemiş olabilir, bu yüzden tüm işaretli path'leri gönderiyoruz.
+        # Üst klasör seçiliyse, onun altındaki seçili alt klasörleri filtrele (tekrar taramayı önle).
+        selected_sorted = sorted(selected, key=len)
+        final = []
+        for p in selected_sorted:
+            if not any(len(f) < len(p) and p[:len(f)] == f for f in final):
+                final.append(p)
+        self.destroy()
+        self._on_confirm(final)
 
 
 # ─── ANA UYGULAMA ───────────────────────────────────────────
@@ -816,11 +1013,46 @@ class App(tk.Tk):
     def _start_scan(self):
         if self._scanning: return
         self._scanning = True
+        self._scan_btn.set_state(False); self._scan_btn.set_text("⏳ Klasörler okunuyor...")
+        self._status("Outlook klasör listesi alınıyor, lütfen bekleyin...")
+
+        def fetch_tree():
+            try:
+                tree = get_folder_tree()
+                self.after(0, lambda: self._show_folder_picker(tree))
+            except Exception as e:
+                self.after(0, lambda: self._scan_tree_error(str(e)))
+
+        threading.Thread(target=fetch_tree, daemon=True).start()
+
+    def _scan_tree_error(self, err):
+        self._scanning = False
+        self._scan_btn.set_state(True); self._scan_btn.set_text("🔄 Tarama Yap")
+        messagebox.showerror("Outlook Hatası",
+            f"Outlook'a bağlanılamadı:\n\n{err}\n\nOutlook'un açık olduğundan emin olun.")
+        self._status("Klasör listesi alınamadı.")
+
+    def _show_folder_picker(self, tree):
+        self._scan_btn.set_state(True); self._scan_btn.set_text("🔄 Tarama Yap")
+        self._scanning = False
+        if not tree:
+            messagebox.showwarning("Klasör Yok", "Outlook'ta hiç hesap/klasör bulunamadı.")
+            self._status("Klasör bulunamadı."); return
+
+        def on_confirm(selected_paths):
+            self._run_scan(selected_paths)
+
+        FolderPickerDialog(self, tree, on_confirm)
+
+    def _run_scan(self, selected_paths):
+        if self._scanning: return
+        self._scanning = True
         self._scan_btn.set_state(False); self._scan_btn.set_text("⏳ Taranıyor...")
-        self._status("Outlook bağlantısı kuruluyor, lütfen bekleyin...")
+        self._status(f"{len(selected_paths)} klasör taranıyor, lütfen bekleyin...")
+
         def log(msg): self.after(0, lambda: self._prog.config(text=msg[-60:]))
         def done(contacts, stats, err=None): self.after(0, lambda: self._scan_done(contacts, stats, err))
-        threading.Thread(target=do_scan, args=(log, done), daemon=True).start()
+        threading.Thread(target=do_scan, args=(log, done, selected_paths), daemon=True).start()
 
     def _scan_done(self, contacts, stats, err):
         self._scanning = False
