@@ -691,7 +691,7 @@ class FolderPickerDialog(tk.Toplevel):
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Outlook Firma Rehberi v4.1 — Poliport")
+        self.title("Outlook Firma Rehberi v4.3 — Poliport")
         self.geometry("1280x760"); self.minsize(960, 580)
         self.configure(bg=BG)
         try: self.state("zoomed")
