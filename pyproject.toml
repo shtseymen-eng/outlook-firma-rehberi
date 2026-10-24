@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "outlook-firma-rehberi"
+version = "5.0.0"
+description = "Microsoft posta kutularından firma bazlı, tekrarsız Excel rehberi oluşturur."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "keyring>=25,<26",
+    "msal>=1.31,<2",
+    "openpyxl>=3.1,<4",
+    "platformdirs>=4,<5",
+    "PySide6>=6.7,<7",
+    "requests>=2.32,<3",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8,<10",
+    "pytest-qt>=4.4,<5",
+    "responses>=0.25,<1",
+]
+build = ["pyinstaller>=6.11,<7"]
+
+[project.scripts]
+outlook-firma-rehberi = "outlook_rehberi.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["outlook_rehberi*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+

@@ -4,6 +4,9 @@ build/
 *.egg-info/
 __pycache__/
 *.pyc
+.pytest_cache/
+.venv/
+.superpowers/
 
 # Uygulama verisi
 rehber_data.json
@@ -15,3 +18,4 @@ rehber_data.json
 # Geçici
 *.tmp
 *.log
+*.sqlite3
