@@ -1,5 +1,5 @@
 def main() -> int:
-    from .app import run_application
+    from outlook_rehberi.app import run_application
 
     return run_application()
 

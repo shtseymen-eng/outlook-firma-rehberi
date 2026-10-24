@@ -1,6 +1,7 @@
 # Build çıktıları
 dist/
 build/
+assets/icon.icns
 *.egg-info/
 __pycache__/
 *.pyc

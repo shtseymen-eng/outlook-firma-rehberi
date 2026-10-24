@@ -32,6 +32,8 @@ def run_application() -> int:
         return 2
 
     application = create_application(config)
+    if os.environ.get("OUTLOOK_REHBERI_SMOKE_TEST") == "1":
+        return 0
     authenticator = MicrosoftAuthenticator(config)
     store = LocalStore()
     graph = GraphClient(authenticator, base_url=config.graph_base_url)
