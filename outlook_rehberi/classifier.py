@@ -174,12 +174,12 @@ class ContactDirectory:
                 self._evidence[email],
                 key=lambda item: (item.observed_at, _source_key(item.source), item.email),
             )
-            records.extend(_evidence_to_record(item) for item in items)
+            records.extend(evidence_to_record(item) for item in items)
         return tuple(records)
 
     @classmethod
     def from_records(cls, records: Sequence[Mapping[str, object]]) -> "ContactDirectory":
-        return cls(_evidence_from_record(record) for record in records)
+        return cls(evidence_from_record(record) for record in records)
 
 
 def _ranked_to_record(value: RankedValue | None) -> dict[str, object] | None:
@@ -202,7 +202,7 @@ def _ranked_from_record(record: object) -> RankedValue | None:
     )
 
 
-def _evidence_to_record(evidence: ContactEvidence) -> dict[str, object]:
+def evidence_to_record(evidence: ContactEvidence) -> dict[str, object]:
     return {
         "email": evidence.email,
         "observed_at": evidence.observed_at.isoformat(),
@@ -221,7 +221,7 @@ def _evidence_to_record(evidence: ContactEvidence) -> dict[str, object]:
     }
 
 
-def _evidence_from_record(record: Mapping[str, object]) -> ContactEvidence:
+def evidence_from_record(record: Mapping[str, object]) -> ContactEvidence:
     source_record = record["source"]
     if not isinstance(source_record, Mapping):
         raise ValueError("Kaynak kaydı geçersiz.")
