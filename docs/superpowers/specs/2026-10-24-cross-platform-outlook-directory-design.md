@@ -19,6 +19,7 @@ The existing signature parsing, contact enrichment, corporate/personal split, ma
 - Export one `.xlsx` file with category sheets, deterministic company grouping, and vertically merged company cells.
 - Keep credentials and extracted data on the user's computer.
 - Show scan progress, completion, and a native Save As dialog with editable filename and destination.
+- Import an existing v4 `rehber_data.json` once so current Windows users keep their directory when upgrading.
 
 ## Non-Goals
 
@@ -154,6 +155,7 @@ Rows are sorted by normalized company, domain, then email. Contacts from the sam
 - Store the complete serialized MSAL token cache through `keyring`, backed by Keychain on macOS and Credential Manager on Windows. This includes the access, ID, refresh, and account metadata MSAL requires for reliable silent multi-account sign-in; it remains encrypted by the operating system credential store.
 - Do not persist complete message bodies. Keep only extracted contact fields, source metadata, folder checkpoints, and minimal diagnostic information.
 - Provide Disconnect Account, Clear Scan Data, and Full Rebuild actions.
+- On first v5 launch, look for a v4 `rehber_data.json` beside the legacy executable or at a user-selected path, import its contacts with stable deduplication, record the migration, and never modify the original file.
 - Logs redact access tokens, message bodies, and email local-parts where practical.
 
 ## Error Handling
