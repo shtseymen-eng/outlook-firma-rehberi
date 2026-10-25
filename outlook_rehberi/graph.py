@@ -53,7 +53,7 @@ class GraphClient:
         *,
         base_url: str = "https://graph.microsoft.com/v1.0",
         session: requests.Session | None = None,
-        sleep: Callable[[float], None] = time.sleep,
+        sleep: Callable[[float], None] | None = None,
         max_retries: int = 3,
         timeout: float = 30.0,
     ) -> None:
@@ -85,7 +85,7 @@ class GraphClient:
                 )
             except requests.RequestException as exc:
                 if attempt < self._max_retries:
-                    self._sleep(min(2**attempt, 8))
+                    self._pause(min(2**attempt, 8), cancellation)
                     continue
                 raise GraphUnavailableError("Microsoft Graph bağlantısı kurulamadı.") from exc
 
@@ -94,12 +94,12 @@ class GraphClient:
                 raise GraphPermissionError(f"Microsoft Graph erişimi reddetti ({status}).")
             if status == 429:
                 if attempt < self._max_retries:
-                    self._sleep(_retry_after(response, attempt))
+                    self._pause(_retry_after(response, attempt), cancellation)
                     continue
                 raise GraphThrottleError("Microsoft Graph istek sınırına ulaşıldı (429).")
             if 500 <= status < 600:
                 if attempt < self._max_retries:
-                    self._sleep(_retry_after(response, attempt))
+                    self._pause(_retry_after(response, attempt), cancellation)
                     continue
                 raise GraphUnavailableError(f"Microsoft Graph geçici olarak kullanılamıyor ({status}).")
             if not 200 <= status < 300:
@@ -113,19 +113,34 @@ class GraphClient:
             return payload
         raise AssertionError("unreachable")
 
+    def _pause(
+        self, delay: float, cancellation: CancellationToken | None
+    ) -> None:
+        if self._sleep is not None:
+            self._sleep(delay)
+        elif cancellation is not None:
+            cancellation.wait(delay)
+        else:
+            time.sleep(delay)
+
     def get_profile(self, account_id: str) -> AccountRef:
         query = urlencode(
             {"$select": "id,displayName,mail,userPrincipalName,tenantId"}
         )
         payload = self._request_json(account_id, f"{self._base_url}/me?{query}")
-        email = str(payload.get("mail") or payload.get("userPrincipalName") or "").strip()
+        mail = str(payload.get("mail") or "").strip()
+        user_principal_name = str(payload.get("userPrincipalName") or "").strip()
+        email = mail or user_principal_name
         if not email:
             raise GraphProtocolError("Microsoft hesabının e-posta adresi bulunamadı.")
         return AccountRef(
-            account_id=str(payload.get("id") or account_id),
+            account_id=account_id,
             email=email,
             display_name=str(payload.get("displayName") or email),
             tenant_id=str(payload.get("tenantId") or ""),
+            own_addresses=frozenset(
+                value.casefold() for value in (mail, user_principal_name) if value
+            ),
         )
 
     def list_folder_tree(

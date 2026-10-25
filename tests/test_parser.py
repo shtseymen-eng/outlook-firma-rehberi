@@ -106,3 +106,46 @@ def test_english_signature_extracts_role_and_company():
     assert evidence.company.value == "FREIGHT FORWARDING LLC"
     assert evidence.mobile_numbers == ("905331112233",)
 
+
+def test_plain_message_text_is_not_persisted_or_promoted_to_sender_name():
+    message = GraphMessage(
+        message_id="plain",
+        sender=Participant("new@sender.com", "New Sender"),
+        body_text="Please review this.",
+        received_at=OBSERVED_AT,
+    )
+
+    evidence = sender_evidence(message, SOURCE)
+
+    assert evidence.name.value == "New Sender"
+    assert evidence.name.quality == 20
+    assert evidence.signature_text == ""
+
+
+def test_html_blockquote_signature_is_not_attributed_to_current_sender():
+    message = GraphMessage(
+        message_id="html-quoted",
+        sender=Participant("new@sender.com", "New Sender"),
+        body_html=(
+            "<p>Merhaba, güncel bilgi aşağıdadır.</p>"
+            "<blockquote><p>Best regards</p><p>Old Person</p>"
+            "<p>OLD CUSTOMS LLC</p><p>+90 532 000 00 00</p></blockquote>"
+        ),
+        received_at=OBSERVED_AT,
+    )
+
+    evidence = sender_evidence(message, SOURCE)
+
+    assert evidence.name.value == "New Sender"
+    assert evidence.company is None
+    assert evidence.mobile_numbers == ()
+    assert evidence.signature_text == ""
+
+
+def test_parser_uses_global_unicode_domain_normalization():
+    evidence = participant_evidence(
+        Participant("USER@örnek.com", "Örnek Kullanıcı"), SOURCE, OBSERVED_AT
+    )
+
+    assert evidence.email == "user@xn--rnek-4qa.com"
+

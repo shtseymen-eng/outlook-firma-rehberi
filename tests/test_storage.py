@@ -120,3 +120,20 @@ def test_sqlite_never_contains_authentication_cache_text(tmp_path):
 
     assert b"ACCESS-TOKEN" not in path.read_bytes()
 
+
+def test_manual_contact_override_persists_with_highest_precedence(tmp_path):
+    store = LocalStore(tmp_path / "data.sqlite3")
+    store.commit_folder("account", "inbox", "delta", [evidence("one@example.com")])
+
+    store.save_contact_override(
+        "one@example.com",
+        name="Düzeltilmiş Kişi",
+        title="Satın Alma Müdürü",
+        company="ÖRNEK A.Ş.",
+    )
+
+    contact = store.load_directory().contacts()[0]
+    assert contact.name == "Düzeltilmiş Kişi"
+    assert contact.title == "Satın Alma Müdürü"
+    assert contact.company == "ÖRNEK A.Ş."
+

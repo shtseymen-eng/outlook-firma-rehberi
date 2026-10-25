@@ -135,7 +135,13 @@ def _write_detail_sheet(workbook: Workbook, title: str, contacts: Sequence[Conta
                 _folders(contact),
             )
             for column, value in enumerate(values, start=1):
-                _style_cell(sheet.cell(row, column, value), fill=fill)
+                cell = sheet.cell(row, column)
+                cell.value = value
+                if isinstance(value, str):
+                    # Contact data originates in untrusted message metadata/signatures.
+                    # Force text so formula-looking values cannot execute in Excel.
+                    cell.data_type = "s"
+                _style_cell(cell, fill=fill)
             row += 1
         end_row = row - 1
         if end_row > start_row:

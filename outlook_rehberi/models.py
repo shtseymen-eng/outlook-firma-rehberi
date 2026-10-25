@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -29,6 +30,10 @@ class CancellationToken:
     def cancel(self) -> None:
         self._event.set()
 
+    def wait(self, timeout: float) -> None:
+        if self._event.wait(max(0.0, timeout)):
+            self.raise_if_cancelled()
+
     def raise_if_cancelled(self) -> None:
         if self.is_cancelled:
             raise CancelledError("Tarama kullanıcı tarafından iptal edildi.")
@@ -44,6 +49,7 @@ class AccountRef:
     email: str
     display_name: str
     tenant_id: str
+    own_addresses: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +152,13 @@ class ScanWarning:
     account_email: str
     folder_path: tuple[str, ...]
     message: str
+
+
+@dataclass(frozen=True, slots=True)
+class FolderTreeLoadResult:
+    accounts: tuple[AccountRef, ...]
+    trees: Mapping[str, tuple[FolderRef, ...]]
+    warnings: tuple[ScanWarning, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

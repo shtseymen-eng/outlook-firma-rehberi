@@ -145,6 +145,45 @@ class LocalStore:
             connection.execute("DELETE FROM evidence")
             connection.execute("DELETE FROM checkpoints")
 
+    def save_contact_override(
+        self,
+        email: str,
+        *,
+        name: str,
+        title: str,
+        company: str,
+    ) -> None:
+        normalized = normalize_email(email)
+        if normalized is None:
+            raise ValueError("Düzeltilecek e-posta adresi geçersiz.")
+        observed_at = datetime.now(timezone.utc)
+        source = SourceRef(
+            account_id="manual",
+            account_email="yerel-düzeltme",
+            folder_id=f"manual:{normalized}",
+            folder_path=("Yerel düzeltme",),
+        )
+        item = ContactEvidence(
+            email=normalized,
+            source=source,
+            observed_at=observed_at,
+            name=RankedValue(name.strip(), 100, observed_at) if name.strip() else None,
+            title=RankedValue(title.strip(), 100, observed_at) if title.strip() else None,
+            company=(
+                RankedValue(company.strip(), 100, observed_at)
+                if company.strip()
+                else None
+            ),
+        )
+        record = json.dumps(
+            evidence_to_record(item), ensure_ascii=False, sort_keys=True
+        )
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO evidence(account_id, folder_id, email, payload) VALUES (?, ?, ?, ?)",
+                (source.account_id, source.folder_id, normalized, record),
+            )
+
     def import_legacy_json(self, path: Path) -> LegacyImportResult:
         path = Path(path)
         migration_key = f"legacy-import:{path.resolve()}"

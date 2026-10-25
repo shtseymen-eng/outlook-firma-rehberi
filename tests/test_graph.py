@@ -1,4 +1,6 @@
 import re
+from threading import Timer
+import time
 
 import pytest
 import requests
@@ -42,7 +44,13 @@ def test_profile_request_is_authorized_and_maps_mail_identity():
 
     profile = GraphClient(StaticTokens()).get_profile("account-1")
 
-    assert profile == AccountRef("profile-id", "test@example.com", "Test User", "tenant-id")
+    assert profile == AccountRef(
+        "account-1",
+        "test@example.com",
+        "Test User",
+        "tenant-id",
+        frozenset({"test@example.com", "upn@example.com"}),
+    )
     assert responses.calls[0].request.headers["Authorization"] == "Bearer top-secret-token"
 
 
@@ -101,6 +109,25 @@ def test_cancelled_request_stops_before_network_access():
         GraphClient(StaticTokens()).list_folder_tree(ACCOUNT, token)
 
     assert len(responses.calls) == 0
+
+
+@responses.activate
+def test_retry_wait_is_interrupted_promptly_by_cancellation():
+    responses.get(
+        re.compile(rf"{GRAPH}/me\?.*"), status=429, headers={"Retry-After": "1"}
+    )
+    token = CancellationToken()
+    timer = Timer(0.05, token.cancel)
+    timer.start()
+    started = time.monotonic()
+
+    try:
+        with pytest.raises(CancelledError):
+            GraphClient(StaticTokens())._request_json("account-1", f"{GRAPH}/me", token)
+    finally:
+        timer.cancel()
+
+    assert time.monotonic() - started < 0.5
 
 
 @responses.activate

@@ -12,6 +12,7 @@ from .models import (
     CancelledError,
     ContactEvidence,
     FolderRef,
+    FolderTreeLoadResult,
     GraphMessagePage,
     ScanProgress,
     ScanResult,
@@ -24,6 +25,8 @@ from .parser import message_evidence
 
 
 class GraphReader(Protocol):
+    def get_profile(self, account_id: str) -> AccountRef: ...
+
     def list_folder_tree(
         self, account: AccountRef, cancellation: CancellationToken
     ) -> tuple[FolderRef, ...]: ...
@@ -78,12 +81,39 @@ class ScanService:
         self,
         accounts: Sequence[AccountRef],
         cancellation: CancellationToken,
-    ) -> Mapping[str, tuple[FolderRef, ...]]:
+    ) -> FolderTreeLoadResult:
         trees: dict[str, tuple[FolderRef, ...]] = {}
+        loaded_accounts: list[AccountRef] = []
+        warnings: list[ScanWarning] = []
         for account in accounts:
             cancellation.raise_if_cancelled()
-            trees[account.account_id] = self._graph.list_folder_tree(account, cancellation)
-        return trees
+            try:
+                profile = (
+                    self._graph.get_profile(account.account_id)
+                    if hasattr(self._graph, "get_profile")
+                    else account
+                )
+                loaded_accounts.append(profile)
+                trees[account.account_id] = self._graph.list_folder_tree(
+                    profile, cancellation
+                )
+            except CancelledError:
+                raise
+            except Exception:
+                loaded_accounts.append(account)
+                trees[account.account_id] = ()
+                warnings.append(
+                    ScanWarning(
+                        account_email=account.email,
+                        folder_path=(),
+                        message="Bu hesabın posta klasörleri alınamadı. Hesabı yenileyin.",
+                    )
+                )
+        return FolderTreeLoadResult(
+            accounts=tuple(loaded_accounts),
+            trees=trees,
+            warnings=tuple(warnings),
+        )
 
     def run(
         self,

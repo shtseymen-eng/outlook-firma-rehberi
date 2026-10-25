@@ -9,8 +9,10 @@ Windows ve macOS için masaüstü uygulaması. Kullanıcının izin verdiği Mic
 - Seçilen klasörlerdeki eski ve yeni tüm mesajları tarar. Sonraki taramalarda güvenli ilerleme kaydını kullanır.
 - Gönderen, Alıcı, Bilgi ve Gizli alıcı adreslerini işler.
 - Kullanıcının kendi adreslerini ve tanımlı takma adreslerini rehbere eklemez.
+- Bağlı hesabın diğer adresleri `Takma Adresleri Düzenle` ekranından eklenebilir.
 - Ad, unvan, firma ve telefon bilgilerini gönderenin güncel imzasından zenginleştirir.
 - Aynı e-posta adresini hesaplar ve klasörler arasında yalnızca bir kez yazar.
+- Taramadan sonra rehberi önizlemeyi ve ad, unvan veya firma bilgisini kalıcı olarak düzeltmeyi sağlar.
 - İşlem tamamlanınca önce `Tarama tamamlandı` mesajını, ardından dosya adı ve konumu seçilebilen yerel `Farklı Kaydet` penceresini açar.
 
 Uygulama e-posta göndermez, silmez, taşımaz veya değiştirmez. Yalnızca Microsoft Graph `Mail.Read` ve oturum profili için `User.Read` yetkilerini ister. Microsoft, `Mail.Read` yetkisini oturum açan kullanıcının posta kutusunu okumaya yönelik bir temsilci izni olarak tanımlar; hem kişisel hem iş/okul hesaplarında kullanılabilir. [Microsoft Graph izin açıklaması](https://learn.microsoft.com/en-us/graph/permissions-reference#mailread)
@@ -53,6 +55,8 @@ Detay sayfalarında sütunlar `Ad Soyad`, `Görev / Unvan`, `Domain`, `Firma`, `
 ## Tarama kesilirse
 
 `İptal Et` ile tarama güvenli sınırda durdurulur. Hata alan veya yarım kalan klasörün ilerleme kaydı değiştirilmez ve otomatik Excel kaydı açılmaz. Tamamlanmış klasörlerin yerel verisi korunur; sorunlu klasör daha sonra yeniden taranabilir.
+
+Eksik veya iptal edilmiş taramada elde edilmiş kayıtlar varsa `Excel'i Farklı Kaydet` düğmesiyle açık bir uyarı sonrasında dışa aktarılabilir. Bu çalışma kitabının `Özet` sayfası taramanın eksik olduğunu belirtir.
 
 ## v4 verisi
 

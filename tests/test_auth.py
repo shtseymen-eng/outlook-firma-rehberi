@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import json
 
 import pytest
 
@@ -23,6 +24,13 @@ class MemoryKeyring:
 
     def delete_password(self, service: str, username: str):
         self.values.pop((service, username), None)
+
+
+class WindowsSizedKeyring(MemoryKeyring):
+    def set_password(self, service: str, username: str, value: str):
+        if len(value.encode("utf-16-le")) > 2560:
+            raise ValueError("credential blob exceeds Windows limit")
+        super().set_password(service, username, value)
 
 
 class FakeCache:
@@ -78,9 +86,27 @@ def test_token_cache_is_serialized_only_into_keyring():
 
     secure_cache.save(FakeCache())
 
-    assert backend.values[("OutlookFirmaRehberi", "msal-token-cache")].startswith(
-        "{\"AccessToken\""
-    )
+    assert backend.values[("OutlookFirmaRehberi", "msal-token-cache")].startswith("{")
+    assert any(".chunk." in username for _, username in backend.values)
+
+
+def test_realistic_multi_account_cache_is_chunked_and_recovers_after_restart():
+    backend = WindowsSizedKeyring()
+    serialized = '{"AccessToken":{"secret":"' + ("A" * 9000) + '"}}'
+
+    class LargeCache:
+        has_state_changed = True
+
+        def serialize(self) -> str:
+            return serialized
+
+    first = KeyringTokenCache(keyring_backend=backend)
+    first.save(LargeCache())
+
+    restored = KeyringTokenCache(keyring_backend=backend).load()
+
+    assert json.loads(restored.serialize()) == json.loads(serialized)
+    assert all(len(value.encode("utf-16-le")) <= 2560 for value in backend.values.values())
 
 
 def test_accounts_maps_multiple_organizational_and_personal_accounts():

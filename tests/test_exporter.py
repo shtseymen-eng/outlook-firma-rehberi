@@ -170,3 +170,26 @@ def test_workbook_is_globally_unique_grouped_merged_and_atomic(tmp_path):
     assert destination.read_bytes() == original_bytes
     assert list(tmp_path.glob("*.tmp.xlsx")) == []
 
+
+def test_untrusted_formula_like_contact_values_remain_literal_text(tmp_path):
+    workbook = build_workbook(
+        [
+            contact(
+                "formula@vendor.com",
+                "+CMD|' /C calc'!A0",
+                Category.CORPORATE,
+                name="=1 + 1",
+            )
+        ],
+        scan_result(),
+    )
+    destination = save_workbook_atomic(workbook, tmp_path / "literal.xlsx")
+
+    loaded = load_workbook(destination, data_only=False)
+    sheet = loaded["Diğer Kurumsal"]
+
+    assert sheet["A4"].value == "=1 + 1"
+    assert sheet["A4"].data_type == "s"
+    assert sheet["D4"].value == "+CMD|' /C calc'!A0"
+    assert sheet["D4"].data_type == "s"
+

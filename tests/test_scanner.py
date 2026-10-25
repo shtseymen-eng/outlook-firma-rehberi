@@ -51,6 +51,15 @@ class FakeGraph:
         self.folder_trees: dict[str, tuple[FolderRef, ...]] = {}
         self.message_calls: list[tuple[str, str, str | None]] = []
         self.folder_calls: list[str] = []
+        self.profile_errors: dict[str, Exception] = {}
+
+    def get_profile(self, account_id: str) -> AccountRef:
+        if account_id in self.profile_errors:
+            raise self.profile_errors[account_id]
+        for email in ("first@firma.com", "second@firma.com"):
+            if account_id.endswith(email[0]):
+                return AccountRef(account_id, email, email, "tenant", frozenset({email}))
+        return AccountRef(account_id, f"{account_id}@firma.com", account_id, "tenant")
 
     def iter_messages(
         self,
@@ -282,9 +291,29 @@ def test_load_folder_trees_keeps_account_boundaries() -> None:
     graph = FakeGraph()
     graph.folder_trees = {"a1": (first_folder,), "a2": (second_folder,)}
 
-    trees = ScanService(graph, FakeStore()).load_folder_trees(
+    loaded = ScanService(graph, FakeStore()).load_folder_trees(
         (first, second), CancellationToken()
     )
 
-    assert trees == {"a1": (first_folder,), "a2": (second_folder,)}
+    assert loaded.trees == {"a1": (first_folder,), "a2": (second_folder,)}
+    assert loaded.warnings == ()
     assert graph.folder_calls == ["a1", "a2"]
+
+
+def test_unavailable_account_does_not_hide_healthy_account_folders() -> None:
+    first = account("a1", "first@firma.com")
+    second = account("a2", "second@firma.com")
+    second_folder = folder(second, "f2", "Gelen")
+    graph = FakeGraph()
+    graph.profile_errors["a1"] = RuntimeError("revoked secret")
+    graph.folder_trees = {"a2": (second_folder,)}
+
+    loaded = ScanService(graph, FakeStore()).load_folder_trees(
+        (first, second), CancellationToken()
+    )
+
+    assert loaded.trees == {"a1": (), "a2": (second_folder,)}
+    assert [account.account_id for account in loaded.accounts] == ["a1", "a2"]
+    assert len(loaded.warnings) == 1
+    assert loaded.warnings[0].account_email == first.email
+    assert "secret" not in loaded.warnings[0].message

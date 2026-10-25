@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import hashlib
+import json
 from typing import Any
+from uuid import uuid4
 
 import keyring
 import msal
@@ -19,6 +22,9 @@ class TenantConsentRequired(AuthenticationError):
 
 
 class KeyringTokenCache:
+    _SCHEMA = 1
+    _CHUNK_SIZE = 900
+
     def __init__(
         self,
         *,
@@ -35,14 +41,85 @@ class KeyringTokenCache:
         serialized = self._keyring.get_password(self.service, self.username)
         if serialized:
             try:
-                cache.deserialize(serialized)
-            except (ValueError, TypeError):
+                payload = json.loads(serialized)
+                if isinstance(payload, Mapping) and payload.get("schema") == self._SCHEMA:
+                    generation = str(payload["generation"])
+                    count = int(payload["chunks"])
+                    parts = [
+                        self._keyring.get_password(
+                            self.service, self._chunk_username(generation, index)
+                        )
+                        for index in range(count)
+                    ]
+                    if any(part is None for part in parts):
+                        raise ValueError("secure cache chunk is missing")
+                    joined = "".join(str(part) for part in parts)
+                    digest = hashlib.sha256(joined.encode("utf-8")).hexdigest()
+                    if digest != str(payload["sha256"]):
+                        raise ValueError("secure cache checksum mismatch")
+                    cache.deserialize(joined)
+                else:
+                    cache.deserialize(serialized)
+            except (KeyError, ValueError, TypeError, json.JSONDecodeError):
                 self._keyring.delete_password(self.service, self.username)
         return cache
 
     def save(self, cache: msal.SerializableTokenCache) -> None:
-        if getattr(cache, "has_state_changed", True):
-            self._keyring.set_password(self.service, self.username, cache.serialize())
+        if not getattr(cache, "has_state_changed", True):
+            return
+        serialized = cache.serialize()
+        chunks = [
+            serialized[index : index + self._CHUNK_SIZE]
+            for index in range(0, len(serialized), self._CHUNK_SIZE)
+        ] or [""]
+        generation = uuid4().hex
+        previous = self._manifest(self._keyring.get_password(self.service, self.username))
+        written: list[str] = []
+        try:
+            for index, value in enumerate(chunks):
+                username = self._chunk_username(generation, index)
+                self._keyring.set_password(self.service, username, value)
+                written.append(username)
+            manifest = json.dumps(
+                {
+                    "schema": self._SCHEMA,
+                    "generation": generation,
+                    "chunks": len(chunks),
+                    "sha256": hashlib.sha256(serialized.encode("utf-8")).hexdigest(),
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            self._keyring.set_password(self.service, self.username, manifest)
+        except Exception:
+            for username in written:
+                self._delete(username)
+            raise
+        if previous is not None:
+            old_generation, old_count = previous
+            for index in range(old_count):
+                self._delete(self._chunk_username(old_generation, index))
+
+    def _chunk_username(self, generation: str, index: int) -> str:
+        return f"{self.username}.chunk.{generation}.{index}"
+
+    def _delete(self, username: str) -> None:
+        try:
+            self._keyring.delete_password(self.service, username)
+        except Exception:
+            pass
+
+    @classmethod
+    def _manifest(cls, serialized: str | None) -> tuple[str, int] | None:
+        if not serialized:
+            return None
+        try:
+            payload = json.loads(serialized)
+            if isinstance(payload, Mapping) and payload.get("schema") == cls._SCHEMA:
+                return str(payload["generation"]), int(payload["chunks"])
+        except (KeyError, ValueError, TypeError, json.JSONDecodeError):
+            pass
+        return None
 
 
 class MicrosoftAuthenticator:

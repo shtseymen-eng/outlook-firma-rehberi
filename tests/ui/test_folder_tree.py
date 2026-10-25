@@ -91,3 +91,32 @@ def test_zero_selection_and_refresh_error_states_are_explicit(qtbot) -> None:
 
     with pytest.raises(SelectionRequiredError, match="en az bir"):
         tree.selections()
+
+
+def test_selected_mailbox_excludes_all_connected_identities_and_aliases(qtbot) -> None:
+    first = AccountRef(
+        "a1", "first@firma.com", "First", "tenant", frozenset({"mail@firma.com"})
+    )
+    second = AccountRef(
+        "a2", "second@firma.com", "Second", "tenant", frozenset({"upn@firma.com"})
+    )
+    inbox = folder(first, "inbox", "Gelen", None, ("Gelen",))
+    tree = FolderTreeWidget()
+    qtbot.addWidget(tree)
+    tree.set_own_addresses(
+        {"a1": frozenset({"alias@firma.com"}), "a2": frozenset()}
+    )
+    tree.set_data((first, second), {"a1": (inbox,), "a2": ()})
+    tree.topLevelItem(0).child(0).setCheckState(0, Qt.CheckState.Checked)
+
+    selection = tree.selections()[0]
+
+    assert selection.own_addresses == frozenset(
+        {
+            "first@firma.com",
+            "mail@firma.com",
+            "alias@firma.com",
+            "second@firma.com",
+            "upn@firma.com",
+        }
+    )

@@ -5,6 +5,7 @@ from html.parser import HTMLParser
 import re
 from typing import AbstractSet
 
+from .classifier import normalize_email
 from .models import (
     ContactEvidence,
     GraphMessage,
@@ -14,7 +15,6 @@ from .models import (
 )
 
 
-EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
 MOBILE_RE = re.compile(
     r"(?<!\d)(?:\+?90[\s.\-]?)?0?5[0-9]{2}[\s.\-]?[0-9]{3}"
     r"[\s.\-]?[0-9]{2}[\s.\-]?[0-9]{2}(?!\d)"
@@ -104,22 +104,42 @@ class _HTMLTextExtractor(HTMLParser):
         super().__init__()
         self.parts: list[str] = []
         self._skip_depth = 0
+        self._quote_depth = 0
+        self._stack: list[tuple[str, bool]] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        del attrs
+        attributes = {name.casefold(): (value or "").casefold() for name, value in attrs}
+        quote_hint = " ".join((attributes.get("class", ""), attributes.get("id", "")))
+        starts_quote = tag == "blockquote" or any(
+            marker in quote_hint
+            for marker in ("gmail_quote", "yahoo_quoted", "divrplyfwdmsg", "reference-message")
+        )
+        if tag not in {"br", "img", "hr", "meta", "link", "input"}:
+            self._stack.append((tag, starts_quote))
+        if starts_quote:
+            self._quote_depth += 1
         if tag in {"script", "style"}:
             self._skip_depth += 1
-        elif self._skip_depth == 0 and tag in {"br", "p", "div", "tr", "li", "td", "th"}:
+        elif self._skip_depth == 0 and self._quote_depth == 0 and tag in {
+            "br", "p", "div", "tr", "li", "td", "th"
+        }:
             self.parts.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
         if tag in {"script", "style"}:
             self._skip_depth = max(0, self._skip_depth - 1)
-        elif self._skip_depth == 0 and tag in {"p", "div", "tr", "li"}:
+        elif self._skip_depth == 0 and self._quote_depth == 0 and tag in {"p", "div", "tr", "li"}:
             self.parts.append("\n")
+        for index in range(len(self._stack) - 1, -1, -1):
+            open_tag, started_quote = self._stack[index]
+            if open_tag == tag:
+                del self._stack[index:]
+                if started_quote:
+                    self._quote_depth = max(0, self._quote_depth - 1)
+                break
 
     def handle_data(self, data: str) -> None:
-        if self._skip_depth == 0:
+        if self._skip_depth == 0 and self._quote_depth == 0:
             self.parts.append(data)
 
 
@@ -147,14 +167,24 @@ def extract_signature(text: str) -> str:
     for index, line in enumerate(lines):
         if SIGNATURE_MARKER_RE.match(line):
             return "\n".join(lines[index:]).strip()
-    return "\n".join(lines[-20:]).strip()
+    candidate = "\n".join(lines[-20:]).strip()
+    if not candidate:
+        return ""
+    has_identity = bool(_signature_name(candidate))
+    has_detail = any(
+        (
+            bool(_title(candidate)),
+            bool(_company(candidate)),
+            bool(MOBILE_RE.search(candidate)),
+            bool(LANDLINE_RE.search(candidate)),
+            bool(re.search(r"\b[^\s@]+@[^\s@]+\.[^\s@]+\b", candidate)),
+        )
+    )
+    return candidate if has_identity and has_detail else ""
 
 
 def _normalize_email(value: str) -> str | None:
-    normalized = (value or "").strip().lower()
-    if not EMAIL_RE.fullmatch(normalized):
-        return None
-    return normalized
+    return normalize_email(value)
 
 
 def _observed_at(message: GraphMessage) -> datetime:

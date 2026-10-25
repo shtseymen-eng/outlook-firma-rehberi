@@ -4,6 +4,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal, Slot
 
+from ..auth import AuthenticationError
 from ..exporter import build_workbook, save_workbook_atomic
 from ..models import CancellationToken, ScanResult
 from ..scanner import ScanCallbacks
@@ -45,6 +46,27 @@ class ScanWorker(QObject):
                 self.completed.emit(result)
         except Exception:
             self.failed.emit("Tarama başlatılamadı. Bağlantınızı ve hesap iznini kontrol edin.")
+        finally:
+            self.finished.emit()
+
+
+class AccountAddWorker(QObject):
+    completed = Signal(object)
+    failed = Signal(str)
+    finished = Signal()
+
+    def __init__(self, authenticator) -> None:
+        super().__init__()
+        self._authenticator = authenticator
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self.completed.emit(self._authenticator.add_account())
+        except AuthenticationError as exc:
+            self.failed.emit(str(exc))
+        except Exception:
+            self.failed.emit("Microsoft hesabı eklenemedi. Yeniden deneyin.")
         finally:
             self.finished.emit()
 

@@ -100,6 +100,16 @@ class FolderTreeWidget(QTreeWidget):
     def selections(self) -> tuple[ScanSelection, ...]:
         selections: list[ScanSelection] = []
         selected_count = 0
+        all_own_addresses = {
+            value
+            for values in self._own_addresses.values()
+            for value in values
+        }
+        for index in range(self.topLevelItemCount()):
+            connected = self.topLevelItem(index).data(0, ACCOUNT_ROLE)
+            if isinstance(connected, AccountRef):
+                all_own_addresses.add(connected.email)
+                all_own_addresses.update(connected.own_addresses)
         for index in range(self.topLevelItemCount()):
             account_item = self.topLevelItem(index)
             account = account_item.data(0, ACCOUNT_ROLE)
@@ -119,10 +129,8 @@ class FolderTreeWidget(QTreeWidget):
                 folders.append(selected)
             if folders:
                 selected_count += len(folders)
-                own = set(self._own_addresses.get(account.account_id, frozenset()))
-                own.add(account.email)
                 selections.append(
-                    ScanSelection(account, tuple(folders), frozenset(own))
+                    ScanSelection(account, tuple(folders), frozenset(all_own_addresses))
                 )
         if not selected_count:
             raise SelectionRequiredError("Tarama için en az bir posta klasörü seçin.")

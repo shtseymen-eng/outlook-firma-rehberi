@@ -19,6 +19,7 @@ Tarama sırasında mesajın göndereni, Alıcı/Bilgi/Gizli alıcıları, tarihl
 - ad, unvan ve firma;
 - cep ve sabit telefon numaraları;
 - ayıklanan imza metni;
+- kullanıcının rehber önizlemesinde yaptığı ad, unvan ve firma düzeltmeleri;
 - kaynak hesap ve klasör bilgisi;
 - klasörün güvenli ilerleme bağlantısı.
 
