@@ -205,7 +205,7 @@ class GraphClient:
         else:
             query = urlencode({"$top": "100", "$select": MESSAGE_SELECT})
             encoded = quote(folder.folder_id, safe="")
-            current_url = f"{self._base_url}/me/mailFolders/{encoded}/messages?{query}"
+            current_url = f"{self._base_url}/me/mailFolders/{encoded}/messages/delta?{query}"
         visited_pages: set[str] = set()
         while current_url:
             cancellation.raise_if_cancelled()

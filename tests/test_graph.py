@@ -177,10 +177,10 @@ def test_recursive_folder_tree_follows_pages_without_duplicates():
 
 @responses.activate
 def test_message_pages_map_participants_body_dates_and_delta_metadata():
-    next_link = f"{GRAPH}/me/mailFolders/inbox/messages?$skiptoken=next"
+    next_link = f"{GRAPH}/me/mailFolders/inbox/messages/delta?$skiptoken=next"
     delta_link = f"{GRAPH}/me/mailFolders/inbox/messages/delta?$deltatoken=done"
     responses.get(
-        re.compile(rf"{GRAPH}/me/mailFolders/inbox/messages\?.*"),
+        re.compile(rf"{GRAPH}/me/mailFolders/inbox/messages/delta\?.*"),
         json={
             "value": [message_payload("m1", "sender@example.com", html=True)],
             "@odata.nextLink": next_link,
