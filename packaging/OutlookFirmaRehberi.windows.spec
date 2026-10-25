@@ -49,5 +49,6 @@ exe = EXE(
     upx=False,
     console=False,
     disable_windowed_traceback=False,
+    version=str(root / "version_info.txt"),
     icon=str(root / "assets/icon.ico"),
 )

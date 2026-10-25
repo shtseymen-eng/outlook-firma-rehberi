@@ -67,3 +67,11 @@ def test_macos_icon_builder_and_source_smoke_mode_exist() -> None:
     assert "--source" in smoke
     assert "--executable" in smoke
     assert "OUTLOOK_REHBERI_SMOKE_TEST" in app
+
+
+def test_legacy_script_is_only_a_v5_compatibility_launcher() -> None:
+    legacy = read("uygulama.py")
+
+    assert "outlook_rehberi.__main__" in legacy
+    assert "win32com" not in legacy
+    assert "tkinter" not in legacy
