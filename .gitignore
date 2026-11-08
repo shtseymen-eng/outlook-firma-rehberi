@@ -20,3 +20,7 @@ rehber_data.json
 *.tmp
 *.log
 *.sqlite3
+
+# Browser dependencies and temporary outputs
+web/node_modules/
+web/dist/
