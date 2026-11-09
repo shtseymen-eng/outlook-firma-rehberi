@@ -1,3 +1,7 @@
+## Mac Mail ile doğrudan tarama
+
+[Web sayfası](https://shtseymen-eng.github.io/outlook-firma-rehberi/) üzerinden Mac yardımcısını indirin. Yardımcı Apple Mail’deki mevcut hesapları yerel rehber ekranında tarar; Microsoft Client ID gerekmez. [Kurulum ve kullanım](mac_helper/README.md). Python 3.9+ ve macOS 12+ gerekir.
+
 # Outlook Firma Rehberi v5
 
 Windows ve macOS için masaüstü uygulaması. Kullanıcının izin verdiği Microsoft 365, Outlook.com ve Hotmail hesaplarındaki seçili posta klasörlerini tarar; e-posta adreslerini tekilleştirir ve firma bazlı bir Excel rehberi oluşturur.

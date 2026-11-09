@@ -8,7 +8,7 @@ export function trustedGraphUrl(value){
 const abortIf=signal=>{if(signal?.aborted)throw new DOMException('Tarama durduruldu.','AbortError');};
 export function sleep(ms,signal){return new Promise((resolve,reject)=>{abortIf(signal);const finish=()=>{signal?.removeEventListener('abort',cancel);resolve();};const timer=setTimeout(finish,ms);const cancel=()=>{clearTimeout(timer);reject(new DOMException('Tarama durduruldu.','AbortError'));};signal?.addEventListener('abort',cancel,{once:true});});}
 export class GraphClient{
- constructor(tokenProvider,options={}){this.tokenProvider=tokenProvider;this.fetch=options.fetch||globalThis.fetch;this.sleep=options.sleep||sleep;}
+ constructor(tokenProvider,options={}){this.tokenProvider=tokenProvider;this.fetch=options.fetch||globalThis.fetch.bind(globalThis);this.sleep=options.sleep||sleep;}
  async request(account,path,signal){
   const url=trustedGraphUrl(path);
   for(let attempt=0;attempt<4;attempt++){
@@ -50,7 +50,7 @@ export class GraphClient{
   }
  }
 }
-export async function scanFolders({graph,work,directory,checkpoints,own,signal,full=false,onProgress=()=>{}}){
+export async function scanFolders({graph,work,directory,checkpoints,own,signal,full=false,onProgress=()=>{},validateCheckpoint=trustedGraphUrl,persistCheckpoints=true}){
  const startedAt=new Date().toISOString();let processed=0,committedMessages=0,completed=0,cancelled=false;const warnings=[];
  const uniqueWork=[...new Map(work.map(item=>[JSON.stringify([item.account.id,item.folder.id]),item])).values()];
  for(const {account,folder} of uniqueWork){
@@ -59,13 +59,13 @@ export async function scanFolders({graph,work,directory,checkpoints,own,signal,f
    abortIf(signal);const start=full?null:checkpoints.get(key);
    const source={account:account.email,accountId:account.id,folderId:folder.id,folder:folder.path};
    for await(const page of graph.messages(account,folder,start,signal)){
-    abortIf(signal);if(page.delta)delta=trustedGraphUrl(page.delta);
+    abortIf(signal);if(page.delta)delta=validateCheckpoint(page.delta);
     for(const message of page.value){abortIf(signal);for(const contact of messageContacts(message,source,own))staged.set(contact.email,mergeContact(staged.get(contact.email),contact));processed++;folderMessages++;}
     onProgress({processed,completed,total:uniqueWork.length,contacts:directory.size,folder:folder.path,account:account.email});
    }
    abortIf(signal);if(!delta)throw new Error('Klasör taraması tamamlanma kaydı alınamadı; bu klasör yeniden denenebilir.');
    for(const contact of staged.values())directory.set(contact.email,mergeContact(directory.get(contact.email),contact));
-   checkpoints.set(key,delta);completed++;committedMessages+=folderMessages;
+   if(persistCheckpoints)checkpoints.set(key,delta);completed++;committedMessages+=folderMessages;
    onProgress({processed,completed,total:uniqueWork.length,contacts:directory.size,folder:folder.path,account:account.email});
   }catch(error){warnings.push({account:account.email,folder:folder.path,message:error.message});if(signal?.aborted||error.name==='AbortError'){cancelled=true;break;}}
  }

@@ -1,8 +1,14 @@
 import {MicrosoftAuth,validClientId,redirectUri,authError} from './auth.mjs';
 import {GraphClient,scanFolders} from './graph.mjs';
+import {LocalMailClient,localSession,scanLocalFolders} from './local-mail.mjs';
 import {normalizeEmail,contactValues,CATEGORY_LABELS,searchText} from './contacts.mjs';
 import {serializeWorkspace,restoreWorkspace} from './backup.mjs';
 const $=id=>document.getElementById(id);
+const pairing=localSession(location.href),local=pairing?new LocalMailClient(pairing):null;
+if(location.hash.startsWith('#mail='))history.replaceState(null,'',location.pathname);
+const isLocal=location.hostname==='127.0.0.1';
+$('helperPanel').hidden=isLocal;
+if(isLocal){$('setupButton').hidden=true;$('addAccount').textContent='Mac Mail hesaplarını göster';$('localOptions').hidden=false;}
 const accounts=new Map(),trees=new Map();let directory=new Map(),checkpoints=new Map(),aliases=new Map(),selected=new Set(),lastResult=null,auth=null,busy=false,abort=null,page=0,selectedEmail='',editing='';
 const PAGE_SIZE=75;let clientId='';
 try{clientId=localStorage.getItem('outlook-rehberi-web-client-id')||import.meta.env.VITE_OUTLOOK_REHBERI_CLIENT_ID||'';}catch{}
@@ -17,11 +23,11 @@ function controls(){
  const hasAccounts=accounts.size>0,hasContacts=rawContacts().length>0;
  for(const id of ['addAccount','setupButton','importBackup','clientId','saveSetup'])$(id).disabled=busy;
  for(const id of ['refreshFolders','activeAccount','editAliases','disconnect','selectFolders','clearFolders'])$(id).disabled=busy||!hasAccounts;
- $('fullScan').disabled=busy;$('scan').disabled=busy||!selected.size||!hasAccounts;$('cancel').disabled=!busy||!abort;
+ $('fullScan').disabled=busy;$('readSignatures').disabled=busy;$('scan').disabled=busy||!selected.size||!hasAccounts;$('cancel').disabled=!busy||!abort;
  $('exportExcel').disabled=busy||!hasContacts||(!lastResult?.complete&&!$('allowPartial').checked);
  $('saveBackup').disabled=busy||!hasContacts;$('clearDirectory').disabled=busy||!hasContacts;$('editContact').disabled=busy||!selectedEmail;
  $('partialWarning').hidden=!hasContacts||lastResult?.complete===true;
- $('authStatus').textContent=auth?'Microsoft girişi hazır':'Microsoft giriş ayarı bekleniyor';$('authStatus').classList.toggle('pending',!auth);
+ $('authStatus').textContent=isLocal?(local?'Mac Mail yardımcısı bağlı':'Yardımcıdan rehber ekranını yeniden açın'):(auth?'Microsoft girişi hazır':'Mac Mail yardımcısıyla tarayabilirsiniz');$('authStatus').classList.toggle('pending',isLocal?!local:!auth);
  $('accountCount').textContent=accounts.size;$('folderCount').textContent=selected.size;$('contactCount').textContent=rawContacts().length;
 }
 function renderAccounts(){
@@ -33,11 +39,11 @@ function renderAccounts(){
  if(!accounts.size){controls();return;}
  $('folders').replaceChildren();
  for(const account of accounts.values()){
-  const group=document.createElement('details');group.open=true;group.className='account-group';const summary=document.createElement('summary');summary.textContent=account.email;group.append(summary);
-  const folders=trees.get(account.id)||[];
+  const group=document.createElement('details');group.open=true;group.className='account-group';const summary=document.createElement('summary');const folders=trees.get(account.id)||[];const accountCheck=document.createElement('input');accountCheck.type='checkbox';accountCheck.setAttribute('aria-label',account.email+' tüm klasörler');const picked=folders.filter(f=>selected.has(JSON.stringify([account.id,f.id]))).length;accountCheck.checked=folders.length>0&&picked===folders.length;accountCheck.indeterminate=picked>0&&picked<folders.length;accountCheck.disabled=busy;accountCheck.addEventListener('click',event=>event.stopPropagation());accountCheck.addEventListener('change',()=>{for(const folder of folders){const key=JSON.stringify([account.id,folder.id]);if(accountCheck.checked)selected.add(key);else selected.delete(key);}renderAccounts();});summary.append(accountCheck,document.createTextNode(' '+account.email));summary.addEventListener('click',()=>{$('activeAccount').value=account.id;});group.append(summary);
+
   if(!folders.length){const p=document.createElement('p');p.className='hint';p.textContent='Klasör listesi alınamadı veya boş. Klasörleri yenile düğmesini kullanın.';group.append(p);}
   for(const folder of folders){const key=JSON.stringify([account.id,folder.id]),label=document.createElement('label'),input=document.createElement('input'),name=document.createElement('span'),count=document.createElement('small');
-   label.className='folder-row';label.style.paddingLeft=16+folder.path.split(' › ').length*13+'px';input.type='checkbox';input.checked=selected.has(key);input.disabled=busy;name.textContent=folder.path;count.textContent=String(folder.totalItemCount||0);input.addEventListener('change',()=>{if(input.checked)selected.add(key);else selected.delete(key);$('folderSummary').textContent=accounts.size+' hesap · '+selected.size+' klasör seçili';controls();});label.append(input,name,count);group.append(label);
+   label.className='folder-row';label.style.paddingLeft=16+folder.path.split(' › ').length*13+'px';input.type='checkbox';input.checked=selected.has(key);input.disabled=busy;name.textContent=folder.path.split(' › ').at(-1);label.title=folder.path;count.textContent=String(folder.totalItemCount||0);input.addEventListener('change',()=>{for(const item of folders.filter(f=>f.id===folder.id||f.path.startsWith(folder.path+' › '))){const itemKey=JSON.stringify([account.id,item.id]);if(input.checked)selected.add(itemKey);else selected.delete(itemKey);}renderAccounts();});label.append(input,name,count);group.append(label);
   }
   $('folders').append(group);
  }
@@ -49,15 +55,15 @@ function renderContacts(){
  const pages=Math.max(1,Math.ceil(items.length/PAGE_SIZE));page=Math.min(page,pages-1);$('contacts').replaceChildren();
  for(const c of items.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE)){
   const row=document.createElement('tr');row.tabIndex=0;row.classList.toggle('selected',c.email===selectedEmail);row.setAttribute('aria-label',c.email+' kaydı');
-  for(const value of [c.name,c.title,c.company,c.email,[...c.mobiles,...c.landlines].join(' / '),CATEGORY_LABELS[c.category]]){const td=document.createElement('td');td.textContent=value||'—';row.append(td);}
+  for(const value of [c.name,c.title,c.company,c.email,CATEGORY_LABELS[c.category]]){const td=document.createElement('td');td.textContent=value||'—';row.append(td);}
   row.addEventListener('click',()=>{selectedEmail=c.email;renderContacts();});row.addEventListener('dblclick',()=>edit(c.email));row.addEventListener('keydown',event=>{if(event.key==='Enter'){selectedEmail=c.email;edit(c.email);}});$('contacts').append(row);
  }
  $('contactsEmpty').hidden=items.length>0;$('pageInfo').textContent=items.length?`${items.length} kayıt · ${page+1} / ${pages}`:'0 kayıt';$('previous').disabled=page===0;$('next').disabled=page===pages-1;controls();
 }
 function graph(){return new GraphClient(account=>auth.token(account));}
 async function loadFolders(account){
- const items=await graph().folders(account);const oldKeys=new Set([...selected].filter(k=>JSON.parse(k)[0]===account.id));const hadTree=trees.has(account.id);
- trees.set(account.id,items);for(const key of oldKeys)selected.delete(key);for(const item of items){const key=JSON.stringify([account.id,item.id]);if(!hadTree||oldKeys.has(key))selected.add(key);}
+ const items=await (account.source==='local'?local:graph()).folders(account);const oldKeys=new Set([...selected].filter(k=>JSON.parse(k)[0]===account.id));const hadTree=trees.has(account.id);
+ trees.set(account.id,items);for(const key of oldKeys)selected.delete(key);for(const item of items){const key=JSON.stringify([account.id,item.id]);if(hadTree&&oldKeys.has(key))selected.add(key);}
 }
 $('setupButton').addEventListener('click',()=>{$('setupDialog').showModal();});
 $('saveSetup').addEventListener('click',async()=>{
@@ -66,6 +72,7 @@ $('saveSetup').addEventListener('click',async()=>{
  try{const candidate=new MicrosoftAuth(value);await candidate.ready;auth=candidate;clientId=value;try{localStorage.setItem('outlook-rehberi-web-client-id',value);}catch{}$('setupDialog').close();notice('Bağlantı ayarı kaydedildi. Microsoft tarafında dönüş adresinin de tanımlanmış olması gerekir.');controls();}catch(error){notice(authError(error),true);}
 });
 $('addAccount').addEventListener('click',async()=>{
+ if(isLocal){await connectLocal();return;}
  if(!auth){$('setupDialog').showModal();notice('Hesap bağlamak için Microsoft giriş kurulumu bir kez tamamlanmalı.');return;}
  busy=true;controls();
  try{
@@ -81,7 +88,7 @@ $('refreshFolders').addEventListener('click',async()=>{
  for(const account of accounts.values()){try{await loadFolders(account);log(account.email+' klasörleri yenilendi.');}catch(error){failed++;log(account.email+' · '+error.message,true);}}
  busy=false;renderAccounts();notice(failed?'Bazı hesapların klasörleri yenilenemedi. İşlem durumunu kontrol edin.':'Posta klasörleri yenilendi.',!!failed);
 });
-$('disconnect').addEventListener('click',async()=>{const account=accounts.get($('activeAccount').value);if(!account)return;try{await auth.disconnect(account);accounts.delete(account.id);trees.delete(account.id);for(const key of [...selected])if(JSON.parse(key)[0]===account.id)selected.delete(key);renderAccounts();renderContacts();notice('Hesap bu sekmeden ayrıldı. Oluşturulmuş rehber korunuyor.');}catch(error){notice('Hesap bağlantısı kaldırılamadı. Sayfayı yenileyerek bu sekmenin oturumunu kapatabilirsiniz.',true);}});
+$('disconnect').addEventListener('click',async()=>{const account=accounts.get($('activeAccount').value);if(!account)return;try{if(account.source!=='local')await auth.disconnect(account);accounts.delete(account.id);trees.delete(account.id);for(const key of [...selected])if(JSON.parse(key)[0]===account.id)selected.delete(key);renderAccounts();renderContacts();notice('Hesap bu sekmeden ayrıldı. Oluşturulmuş rehber korunuyor.');}catch(error){notice('Hesap bağlantısı kaldırılamadı. Sayfayı yenileyerek bu sekmenin oturumunu kapatabilirsiniz.',true);}});
 $('editAliases').addEventListener('click',()=>{const account=accounts.get($('activeAccount').value);if(!account)return;$('aliasesAccount').textContent=account.email;$('aliasesText').value=[...new Set([...account.own,...(aliases.get(account.id)||[])])].join('\n');$('aliasesDialog').showModal();});
 $('saveAliases').addEventListener('click',()=>{const account=accounts.get($('activeAccount').value);if(!account)return;const raw=$('aliasesText').value.split(/[\n,;]+/).map(v=>v.trim()).filter(Boolean);if(raw.some(v=>!normalizeEmail(v))){notice('Kendi adresleri listesinde geçersiz e-posta var.',true);return;}aliases.set(account.id,[...new Set(raw.map(normalizeEmail))]);removeOwn();$('aliasesDialog').close();renderContacts();notice('Kendi adresleriniz rehberden çıkarıldı.');});
 $('selectFolders').addEventListener('click',()=>{for(const [id,folders] of trees)for(const folder of folders)selected.add(JSON.stringify([id,folder.id]));renderAccounts();});
@@ -89,9 +96,12 @@ $('clearFolders').addEventListener('click',()=>{selected.clear();renderAccounts(
 $('scan').addEventListener('click',async()=>{
  const work=[];for(const key of selected){const [id,folderId]=JSON.parse(key);const account=accounts.get(id),folder=trees.get(id)?.find(f=>f.id===folderId);if(account&&folder)work.push({account,folder});}
  if(!work.length){notice('En az bir posta klasörü seçin.',true);return;}
+ if($('fullScan').checked){directory=new Map();checkpoints=new Map();selectedEmail='';}
  busy=true;abort=new AbortController();$('allowPartial').checked=false;$('progress').value=0;$('messageCount').textContent='0';$('scanStatus').textContent='Taranıyor';renderAccounts();renderContacts();log('Tarama başladı. '+work.length+' klasör seçildi.');
  try{
-  lastResult=await scanFolders({graph:graph(),work,directory,checkpoints,own:own(),signal:abort.signal,full:$('fullScan').checked,onProgress:progress=>{$('messageCount').textContent=progress.processed;$('progress').value=progress.total?progress.completed/progress.total*100:0;$('progressText').textContent=`${progress.account} · ${progress.folder} · ${progress.processed} mesaj · ${progress.completed}/${progress.total} klasör`;renderContacts();}});
+  if(local)local.signatures=$('readSignatures').checked;
+  const scan=local?scanLocalFolders:scanFolders;
+  lastResult=await scan({client:local,graph:local||graph(),work,directory,checkpoints,own:own(),signal:abort.signal,full:$('fullScan').checked,onProgress:progress=>{$('messageCount').textContent=progress.processed;$('progress').value=progress.total?progress.completed/progress.total*100:0;$('progressText').textContent=`${progress.account} · ${progress.folder} · ${progress.processed} mesaj · ${progress.completed}/${progress.total} klasör`;renderContacts();}});
   for(const warning of lastResult.warnings)log(warning.account+' › '+warning.folder+' · '+warning.message,true);
   $('scanStatus').textContent=lastResult.complete?'Tamamlandı':lastResult.cancelled?'İptal edildi':'Eksik tarama';$('progressText').textContent=`${lastResult.completed}/${lastResult.total} klasör tamamlandı · ${rawContacts().length} tekil e-posta`;
   notice(lastResult.complete?'Tarama tamamlandı. Firma rehberini Excel olarak kaydedebilirsiniz.':'Tarama tam değil. Tamamlanan klasörler korundu; sonuçları kontrol ederek eksik çıktı alabilir veya yeniden tarayabilirsiniz.',!lastResult.complete);log($('scanStatus').textContent+'. '+rawContacts().length+' tekil e-posta.');
@@ -127,3 +137,16 @@ $('previous').addEventListener('click',()=>{page--;renderContacts();});$('next')
 for(const button of document.querySelectorAll('[data-close]'))button.addEventListener('click',()=>$(button.dataset.close).close());
 window.addEventListener('beforeunload',event=>{if(directory.size||busy){event.preventDefault();event.returnValue='';}});
 renderAccounts();renderContacts();
+
+async function connectLocal(){
+ if(!local){notice('Mac Mail Rehberi yardımcısındaki Rehberi Aç düğmesiyle bu ekranı yeniden açın.',true);return;}
+ busy=true;controls();notice('Mac Mail hesapları okunuyor. macOS izin sorarsa Mail erişimine izin verin.');
+ try{
+  const items=await local.accounts();
+  for(const item of items){accounts.set(item.id,item);}
+  removeOwn();
+  for(const item of items){try{await loadFolders(item);}catch(error){log(item.email+' · '+error.message,true);}}
+  notice(items.length?items.length+' Mail hesabı bulundu. Klasörleri seçip taramayı başlatın.':'Mail’de hesap bulunamadı. Önce Mail uygulamasına hesabınızı ekleyin.');
+ }catch(error){notice(error.message,true);}
+ finally{busy=false;renderAccounts();renderContacts();}
+}

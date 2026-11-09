@@ -2,7 +2,7 @@ name: Outlook Web Pages
 on:
   push:
     branches: [main]
-    paths: ['web/**', '.github/workflows/web.yml']
+    paths: ['web/**', 'mac_helper/**', '.github/workflows/web.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -26,6 +26,10 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci --ignore-scripts
         working-directory: web
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - run: python -m unittest discover -s mac_helper -p 'test_*.py'
       - run: npm test
         working-directory: web
       - run: npm run build
